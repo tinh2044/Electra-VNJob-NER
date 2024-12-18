@@ -152,15 +152,13 @@ Ensure the `data` folder has the following structure after extraction:
 Run the following command to train the model:
 
 ```bash
-python -m train --mode train --epoch 200 --lr 0.001 --batch_size 32 \
-        --repo_id tinh2312/Electra-VNJob-NER
+python -m main --task train --epoch 200 --lr 0.001 --batch_size 32 --repo_id tinh2312/Electra-VNJob-NER
 ```
 
 ### Evaluate Electra Model
 
 ```bash
-python -m train --mode eval --batch_size 32 \
-        --repo_id tinh2312/Electra-VNJob-NER
+python -m main --task eval --batch_size 32 --repo_id tinh2312/Electra-VNJob-NER
 ```
 
 ### Interface Model with Gradio
@@ -168,7 +166,7 @@ python -m train --mode eval --batch_size 32 \
 Use Gradio to launch a demo interface for the model:
 
 ```bash
-gradio app.py --demo-name=demoe
+gradio app.py --demo-name=demo
 ```
 
 ---

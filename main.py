@@ -13,7 +13,8 @@ from pathlib import Path
 from transformers import ElectraForTokenClassification, AutoTokenizer
 
 from datasets import Dataset
-from utils import train_epoch, evaluate, save_checkpoints, load_checkpoints
+from utils import evaluate_fn
+from train import train_fn
 
 def get_default_args():
     parser = argparse.ArgumentParser(add_help=False)
@@ -31,7 +32,7 @@ def get_default_args():
 
     parser.add_argument("--train_data_path", type=str, default="./data/vnjob_train.csv",
                         help="Path to the training dataset")
-    parser.add_argument("--val_data_path", type=str, default="./data/vnjob_test.csv",
+    parser.add_argument("--val_data_path", type=str, default="./data/vnjob_val.csv",
                         help="Path to the training dataset")
         
     parser.add_argument("--epochs", type=int, default=200, help="Number of epochs to train the model for")
@@ -70,103 +71,27 @@ def main():
     model = ElectraForTokenClassification.from_pretrained(repo_id)
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     model.to(device)
-    
-    train_dataset = Dataset(args.train_data_path, tokenizer, "train")
-    val_dataset = Dataset(args.val_data_path, tokenizer, "val")
-    
-    train_loader = DataLoader(train_dataset, shuffle=True,
-                              batch_size=args.batch_size, collate_fn=train_dataset.data_collator)
-    val_loader = DataLoader(val_dataset, shuffle=True,
-                            batch_size=args.batch_size, collate_fn=val_dataset.data_collator)
-    
     if args.pretrained_path != "":
         print(f"Load checkpoint from file : {args.pretrained_path}")
         checkpoints = torch.load(args.pretrained_path)
         model.load_state_dict(checkpoints['model'])
-        
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=args.scheduler_factor,
-                                                     patience=args.scheduler_patience)
     
-    list_train_loss, list_train_acc, list_val_loss, list_val_acc = [], [], [], []
-    top_train_acc, top_val_acc = 0, 0
-    lr_progress = []
-    epochs = args.epochs 
-
-    if args.resume_checkpoints != "":
-        print(f"Resume training from file : {args.resume_checkpoints}")
-        resume_epoch = load_checkpoints(model, optimizer, args.resume_checkpoints, resume=True)
+    val_dataset = Dataset(args.val_data_path, tokenizer, "val")
+    if args.task == "train":
+        train_dataset = Dataset(args.train_data_path, tokenizer, "train")
+        train_fn(model, train_dataset, val_dataset, args)
     else:
-        resume_epoch = 0
-    if args.task == "eval":
+        val_loader = DataLoader(val_dataset, shuffle=True,
+                            batch_size=args.batch_size, collate_fn=val_dataset.data_collator)
+        
         print("Evaluate model..!")
         model.train(False)
-        val_loss, val_acc, val_recall, val_precision, val_f1 = evaluate(model, val_loader, epoch=0, epochs=0)
-        val_info = f"[{epoch + 1}] Valuation  loss: {val_loss}, acc: {val_acc}, recall: {val_recall}, precision: {val_precision}, f1: {val_f1}"
+        val_loss, val_acc, val_recall, val_precision, val_f1 = evaluate_fn(model, val_loader, epoch=0, epochs=0)
+        val_info = f"Valuation  loss: {val_loss}, acc: {val_acc}, recall: {val_recall}, precision: {val_precision}, f1: {val_f1}"
         print(val_info)
         logging.info(val_info)
         print("")
         return
-
-    Path(args.experiment_name).mkdir(parents=True, exist_ok=True)
-    for epoch in range(resume_epoch, epochs, 1):
-        train_loss, train_acc, train_recall, train_precision, train_f1 = train_epoch(model, train_loader, optimizer,
-                                               scheduler, epoch=epoch, epochs=epochs)
-
-        list_train_loss.append(train_loss)
-        list_train_acc.append(train_acc)
-
-        model.train(False)
-        val_loss, val_acc, val_recall, val_precision, val_f1 = evaluate(model, val_loader, epoch=epoch, epochs=epochs)
-        model.train(True)
-
-        list_val_loss.append(val_loss)
-        list_val_acc.append(val_acc)
-
-        if train_acc > top_train_acc:
-            top_train_acc = train_acc
-            save_checkpoints(model, optimizer, (args.experiment_name, epoch))
-
-        if val_acc > top_val_acc:
-            top_val_acc = val_acc
-            save_checkpoints(model, optimizer, (args.experiment_name, epoch))
-
-        train_info = f"[{epoch + 1}] TRAIN  loss: {train_loss}, acc: {train_acc}, recall: {train_recall}, precision: {train_precision}, f1: {train_f1}"
-        val_info = f"[{epoch + 1}] Valuation  loss: {val_loss}, acc: {val_acc}, recall: {val_recall}, precision: {val_precision}, f1: {val_f1}"
-        print(train_info)
-        logging.info(train_info)
-        print(val_info)
-        logging.info(val_info)
-        print("")
-        logging.info("")
-
-        lr_progress.append(optimizer.param_groups[0]["lr"])
-
-    fig, ax = plt.subplots()
-    ax.plot(range(1, len(list_train_loss) + 1), list_train_loss, c="#D64436", label="Training loss")
-    ax.plot(range(1, len(list_train_acc) + 1), list_train_acc, c="#00B09B", label="Training accuracy")
-
-    if val_loader:
-        ax.plot(range(1, len(list_val_acc) + 1), list_val_acc, c="#E0A938", label="Validation accuracy")
-
-    ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-
-    ax.set(xlabel="Epoch", ylabel="Accuracy / Loss", title="")
-    plt.legend(loc="upper center", bbox_to_anchor=(0.5, 1.05), ncol=4, fancybox=True, shadow=True,
-               fontsize="xx-small")
-    ax.grid()
-
-    fig.savefig(args.experiment_name + "_loss.png")
-
-    fig1, ax1 = plt.subplots()
-    ax1.plot(range(1, len(lr_progress) + 1), lr_progress, label="LR")
-    ax1.set(xlabel="Epoch", ylabel="LR", title="")
-    ax1.grid()
-
-    fig1.savefig(args.experiment_name + "_lr.png")
-
-    print("\nAny desired statistics have been plotted.\nThe experiment is finished.")
-    logging.info("\nAny desired statistics have been plotted.\nThe experiment is finished.")
     
 if __name__ == "__main__":
     main()

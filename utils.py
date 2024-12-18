@@ -58,48 +58,7 @@ def load_checkpoints(model, optimizer, path, resume=True):
     else:
         return 1
 
-
-def train_epoch(model, dataloader, optimizer, scheduler=None, epoch=0, epochs=0):
-    all_loss, all_acc, all_precision, all_recall, all_f1 = 0.0, 0.0, 0.0, 0.0, 0.0
-    len_loadder = len(dataloader)
-    loop = tqdm(enumerate(dataloader), total=len_loadder, leave=True, desc=f"Training epoch {epoch + 1}/{epochs}: ")
-    for i, data in loop:
-        labels = data["labels"]
-        optimizer.zero_grad()
-        outputs_model = model(**data)
-        loss = outputs_model.loss
-        outputs = outputs_model.logits
-        loss.backward()
-        optimizer.step()
-        all_loss += loss.item()
-
-        results = compute_metric(outputs, labels)
-        precision = results['precision']
-        recall = results['recall']
-        f1 = results['f1']
-        acc = results['accuracy']
-
-        all_acc += acc
-        all_recall += recall
-        all_precision += precision
-        all_f1 += f1
-
-        loop.set_postfix_str(f"Loss: {loss.item():.3f}, Acc: {acc:.3f}, Recall: {recall:.3f}"
-                             f", Precison: {precision:.3f}, , F1: {f1:.3f}")
-
-    if scheduler:
-        scheduler.step(all_loss / len_loadder)
-
-    all_loss /= len_loadder
-    all_acc /= len_loadder
-    all_recall /= len_loadder
-    all_precision /= len_loadder
-    all_f1 /= len_loadder
-
-    return all_loss, all_acc, all_recall, all_precision, all_f1
-
-
-def evaluate(model, dataloader, epoch=0, epochs=0):
+def evaluate_fn(model, dataloader, epoch=0, epochs=0):
     all_loss, all_acc, all_precision, all_recall, all_f1 = 0.0, 0.0, 0.0, 0.0, 0.0
     len_loadder = len(dataloader)
     loop = tqdm(enumerate(dataloader), total=len_loadder, leave=True,

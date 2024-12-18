@@ -1,1 +1,3 @@
 ./.idea/
+./data/vnjob_train.csv
+./data/vnjob_val.csv
